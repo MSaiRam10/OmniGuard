@@ -30,12 +30,14 @@ Validated against 103 automated attack vectors:
 
 No setup required. Just use the hosted version directly.
 
+The hosted version at prismbrain.co is pointed at OpenAI's API. Every request passes through OmniGuard's full security stack before reaching OpenAI.
+
 **Step 1 - Get a token:**
 
 ```bash
 curl -X POST https://prismbrain.co/token \
   -H "Content-Type: application/json" \
-  -d '{"user_id": "john", "role": "junior-dev"}'
+  -d '{"user_id": "john", "role": "senior-dev"}'
 ```
 
 Returns:
@@ -43,31 +45,24 @@ Returns:
 {"token": "eyJhbGci..."}
 ```
 
-**Step 2 - Call a tool through OmniGuard:**
-
-The hosted version at prismbrain.co is currently pointed at our GitHub MCP Server (mcp.glassbrain.dev).
-
-Available tools on this upstream:
-- `list_repos` - list all repos for a GitHub user
-- `get_repo` - get details of a specific repo
-- `list_issues` - list open issues on a repo
-- `create_issue` - create a new issue
-- `list_prs` - list open pull requests
-- `get_file` - read a file from a repo
-
-Since the upstream is a GitHub MCP server, you also need to pass your GitHub Personal Access Token as an additional header:
+**Step 2 - Call OpenAI through OmniGuard:**
 
 ```bash
 curl -X POST https://prismbrain.co/call_tool \
   -H "Authorization: Bearer your-omniguard-token" \
-  -H "X-GitHub-Token: your-github-personal-access-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "upstream_url": "https://mcp.glassbrain.dev/mcp",
-    "payload": {"content": "MSaiRam10"},
-    "tool": "list_repos"
+    "upstream_url": "https://api.openai.com/v1/chat/completions",
+    "payload": {
+      "model": "gpt-4o-mini",
+      "messages": [{"role": "user", "content": "What is 2+2?"}],
+      "Authorization": "Bearer your-openai-api-key"
+    },
+    "tool": "chat_completion"
   }'
 ```
+
+OmniGuard intercepts the request, checks your JWT identity, enforces OPA policy, scans for prompt injection, redacts PII, then forwards to OpenAI. The response comes back clean.
 
 To point OmniGuard at your own MCP server instead, self-host using the setup instructions below and set `UPSTREAM_URL` in your `.env`.
 
