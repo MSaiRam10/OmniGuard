@@ -2,6 +2,8 @@
 
 A Zero-Trust MCP Governance Gateway and Agentic SOC for enterprise AI agents. OmniGuard sits between your AI agents and the tools they call - enforcing identity, policy, and security on every single request.
 
+**Live at: https://prismbrain.co**
+
 ## What It Does
 
 Every time an AI agent tries to call a tool (GitHub, database, API), the request passes through OmniGuard first. No exceptions.
@@ -13,7 +15,7 @@ Every time an AI agent tries to call a tool (GitHub, database, API), the request
 - **Rate Limiting** - Redis token bucket enforces per-user request limits. Precise enforcement validated at exactly 60 req/min.
 - **Audit Logging** - Every request logged to PostgreSQL with user identity, tool called, action taken, blocked status, and block reason. Append-only, immutable.
 - **Agentic SOC** - LangGraph-powered Triage, Enrichment, and Containment agents monitor audit logs in real time and automatically revoke compromised sessions.
-- **Automated Red Team** - Offensive LangGraph swarm continuously attacks the gateway and outputs security benchmark scores.
+- **Automated Red Team** - Offensive LangGraph swarm that attacks the gateway on demand and outputs security benchmark scores across 103 attack vectors.
 
 ## Benchmark Results
 
@@ -24,30 +26,66 @@ Validated against 103 automated attack vectors:
 - OPA Policy Bypass Prevention: 100% (3/3 vectors)
 - Rate Limit Enforcement: precise at 60 req/min (10/70 correctly blocked)
 
-## How to Use
+## How to Use (Hosted Version at prismbrain.co)
 
-Point your AI agent at OmniGuard instead of your upstream service:
+No setup required. Just use the hosted version directly.
 
-```python
-import httpx
+**Step 1 - Get a token:**
 
-response = httpx.post(
-    "https://prismbrain.co/call_tool",
-    headers={"Authorization": "Bearer your-jwt-token"},
-    json={
-        "upstream_url": "https://your-mcp-server.com",
-        "payload": {"content": "your request"},
-        "tool": "read_repo"
-    }
-)
+```bash
+curl -X POST https://prismbrain.co/token \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "john", "role": "junior-dev"}'
 ```
 
-Get a token first:
+Returns:
+```json
+{"token": "eyJhbGci..."}
+```
 
+**Step 2 - Call a tool through OmniGuard:**
+
+```bash
+curl -X POST https://prismbrain.co/call_tool \
+  -H "Authorization: Bearer your-token-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream_url": "https://your-mcp-server.com",
+    "payload": {"content": "your request here"},
+    "tool": "read_repo"
+  }'
 ```
-POST /token
-{"user_id": "john", "role": "junior-dev"}
+
+The `tool` field is the name of the tool on your upstream MCP server. OmniGuard uses it to enforce OPA access policies and write audit logs. Examples: `read_repo`, `query_database`, `create_issue`, `send_email`.
+
+OmniGuard comes with default policies in `gateway/policy.rego`. Edit this file to match your own roles and tools before deploying:
+
+```rego
+allow {
+    input.role == "senior-dev"
+    input.tool != "delete_database"
+}
 ```
+
+Add, remove, or change any rule to fit your access control requirements. No code changes needed - only the policy file.
+
+**Step 3 - That is it.** OmniGuard handles identity verification, policy enforcement, prompt injection detection, PII redaction, rate limiting, and audit logging automatically on every request.
+
+## Roles Available (Default)
+
+- `admin` - full access to all tools
+- `senior-dev` - access to all tools except delete operations
+- `junior-dev` - read-only access (read_repo only)
+- `contractor` - restricted access
+
+Add your own roles and rules in `gateway/policy.rego`.
+
+## What Gets Blocked
+
+- Invalid or expired JWT returns `401`
+- Policy violation (wrong role for tool) returns `403`
+- Prompt injection detected returns `400 {"detail": "Prompt injection detected"}`
+- Rate limit exceeded returns `429`
 
 ## Stack
 
@@ -66,56 +104,85 @@ POST /token
 
 **Scenario B - Agentic SOC:** Prompt injection tricks an AI agent into attempting a data dump. Pinecone blocks the request. Triage Agent detects the anomaly spike. Containment Agent revokes the JWT and updates OPA policy in under 5 seconds.
 
-**Scenario C - Red Team:** Offensive LangGraph swarm runs nightly, generating attack benchmarks. Ensures no new deployment introduced a security regression.
+**Scenario C - Red Team:** Run `python red-team/attacker.py` to launch the offensive swarm. It attacks the gateway across 103 vectors and outputs a full benchmark report.
+
+---
 
 ## Self-Hosting Setup
 
-1. Create a Pinecone index:
-   - Name: `prompt-injections`
-   - Dimensions: `384`
-   - Metric: `cosine`
+Only follow these steps if you want to run your own instance. Skip if using prismbrain.co.
 
-2. Create `.env`:
+**1. Create a Pinecone account at pinecone.io and create an index with these exact settings:**
+
+- Name: `prompt-injections`
+- Dimensions: `384`
+- Metric: `cosine`
+- Cloud: AWS
+- Region: us-east-1
+
+**2. Create `.env` in the root folder:**
 
 ```
-JWT_SECRET=your_secret_key
-DATABASE_URL=postgresql://postgres:password@localhost:5432/omniguard
-REDIS_URL=redis://localhost:6379
-PINECONE_API_KEY=your_pinecone_key
-OPENAI_API_KEY=your_openai_key
-GATEWAY_URL=http://localhost:8000
+JWT_SECRET=any_random_secret_string_here
+DATABASE_URL=postgresql://postgres:password@db:5432/omniguard
+REDIS_URL=redis://172.17.0.1:6379
+PINECONE_API_KEY=your_pinecone_api_key
+OPENAI_API_KEY=your_openai_api_key
+GATEWAY_URL=https://prismbrain.co
 UPSTREAM_URL=https://your-mcp-server.com
 ```
 
-3. Install dependencies:
+**3. Edit `gateway/policy.rego` to define your own roles and tools:**
+
+```rego
+package omniguard
+
+default allow = false
+
+allow {
+    input.role == "admin"
+}
+
+allow {
+    input.role == "senior-dev"
+    input.tool != "delete_database"
+}
+
+allow {
+    input.role == "junior-dev"
+    input.tool == "read_repo"
+}
+```
+
+**4. Install dependencies:**
 
 ```bash
 pip install -r gateway/requirements.txt
 python -m spacy download en_core_web_lg
 ```
 
-4. Seed jailbreak vectors:
+**5. Seed jailbreak vectors into Pinecone:**
 
 ```bash
 python seed_pinecone.py
 ```
 
-5. Start OPA:
-
-```bash
-./opa run --server --addr localhost:8181 gateway/policy.rego
-```
-
-6. Run with Docker:
+**6. Run with Docker:**
 
 ```bash
 docker-compose up --build -d
 ```
 
+**7. Run the red team benchmark (optional):**
+
+```bash
+python red-team/attacker.py
+```
+
 ## Endpoints
 
-- `POST /call_tool` - Main proxy endpoint
 - `POST /token` - Get a JWT token
+- `POST /call_tool` - Main proxy endpoint
 - `GET /docs` - API documentation
 
 ## Port
