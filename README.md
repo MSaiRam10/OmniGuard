@@ -45,29 +45,31 @@ Returns:
 
 **Step 2 - Call a tool through OmniGuard:**
 
+The hosted version at prismbrain.co is currently pointed at our GitHub MCP Server (mcp.glassbrain.dev).
+
+Available tools on this upstream:
+- `list_repos` - list all repos for a GitHub user
+- `get_repo` - get details of a specific repo
+- `list_issues` - list open issues on a repo
+- `create_issue` - create a new issue
+- `list_prs` - list open pull requests
+- `get_file` - read a file from a repo
+
+Since the upstream is a GitHub MCP server, you also need to pass your GitHub Personal Access Token as an additional header:
+
 ```bash
 curl -X POST https://prismbrain.co/call_tool \
-  -H "Authorization: Bearer your-token-here" \
+  -H "Authorization: Bearer your-omniguard-token" \
+  -H "X-GitHub-Token: your-github-personal-access-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "upstream_url": "https://your-mcp-server.com",
-    "payload": {"content": "your request here"},
-    "tool": "read_repo"
+    "upstream_url": "https://mcp.glassbrain.dev/mcp",
+    "payload": {"content": "MSaiRam10"},
+    "tool": "list_repos"
   }'
 ```
 
-The `tool` field is the name of the tool on your upstream MCP server. OmniGuard uses it to enforce OPA access policies and write audit logs. Examples: `read_repo`, `query_database`, `create_issue`, `send_email`.
-
-OmniGuard comes with default policies in `gateway/policy.rego`. Edit this file to match your own roles and tools before deploying:
-
-```rego
-allow {
-    input.role == "senior-dev"
-    input.tool != "delete_database"
-}
-```
-
-Add, remove, or change any rule to fit your access control requirements. No code changes needed - only the policy file.
+To point OmniGuard at your own MCP server instead, self-host using the setup instructions below and set `UPSTREAM_URL` in your `.env`.
 
 **Step 3 - That is it.** OmniGuard handles identity verification, policy enforcement, prompt injection detection, PII redaction, rate limiting, and audit logging automatically on every request.
 
