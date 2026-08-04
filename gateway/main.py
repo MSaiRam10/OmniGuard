@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from auth import verify_token
+from auth import verify_token, create_token
 from limiter import check_rate_limit
 from policies import check_policy
 from security import scrub_pii, detect_prompt_injection
@@ -25,6 +25,15 @@ class ProxyRequest(BaseModel):
     upstream_url: str
     payload: dict
     tool: str
+
+class TokenRequest(BaseModel):
+    user_id: str
+    role: str
+
+@app.post("/token")
+def get_token(request: TokenRequest):
+    token = create_token(request.user_id, request.role)
+    return {"token": token}
 
 @app.post("/call_tool")
 async def call_tool(request: Request, body: ProxyRequest):
