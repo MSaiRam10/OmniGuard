@@ -1,0 +1,38 @@
+version: "3"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: omniguard
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  opa:
+    image: openpolicyagent/opa:latest
+    ports:
+      - "8181:8181"
+    command: run --server --addr 0.0.0.0:8181 /policies/policy.rego
+    volumes:
+      - ./gateway/policy.rego:/policies/policy.rego
+  api:
+    build: ./gateway
+    ports:
+      - "8011:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      opa:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
