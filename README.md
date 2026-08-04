@@ -30,7 +30,7 @@ Validated against 103 automated attack vectors:
 
 No setup required. Just use the hosted version directly.
 
-The hosted version at prismbrain.co is pointed at OpenAI's API. Every request passes through OmniGuard's full security stack before reaching OpenAI.
+The hosted version at prismbrain.co is pointed at OpenAI's API. Every request passes through OmniGuard's full security stack before reaching the upstream.
 
 **Step 1 - Get a token:**
 
@@ -45,26 +45,44 @@ Returns:
 {"token": "eyJhbGci..."}
 ```
 
-**Step 2 - Call OpenAI through OmniGuard:**
+**Step 2 - Call any upstream through OmniGuard:**
+
+Pass your upstream API key via the `X-Upstream-Key` header. OmniGuard uses it to authenticate with the upstream service on your behalf.
+
+Example with OpenAI:
 
 ```bash
 curl -X POST https://prismbrain.co/call_tool \
   -H "Authorization: Bearer your-omniguard-token" \
+  -H "X-Upstream-Key: your-openai-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "upstream_url": "https://api.openai.com/v1/chat/completions",
     "payload": {
       "model": "gpt-4o-mini",
-      "messages": [{"role": "user", "content": "What is 2+2?"}],
-      "Authorization": "Bearer your-openai-api-key"
+      "messages": [{"role": "user", "content": "What is 2+2?"}]
     },
     "tool": "chat_completion"
   }'
 ```
 
-OmniGuard intercepts the request, checks your JWT identity, enforces OPA policy, scans for prompt injection, redacts PII, then forwards to OpenAI. The response comes back clean.
+Example with GitHub MCP:
 
-To point OmniGuard at your own MCP server instead, self-host using the setup instructions below and set `UPSTREAM_URL` in your `.env`.
+```bash
+curl -X POST https://prismbrain.co/call_tool \
+  -H "Authorization: Bearer your-omniguard-token" \
+  -H "X-Upstream-Key: your-github-personal-access-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream_url": "https://your-github-mcp-server.com/call_tool",
+    "payload": {"username": "MSaiRam10"},
+    "tool": "list_repos"
+  }'
+```
+
+OmniGuard intercepts the request, checks your JWT identity, enforces OPA policy, scans for prompt injection, redacts PII, then forwards to the upstream with your key as the Authorization header.
+
+To point OmniGuard at your own MCP server, self-host using the setup instructions below and set `UPSTREAM_URL` in your `.env`.
 
 **Step 3 - That is it.** OmniGuard handles identity verification, policy enforcement, prompt injection detection, PII redaction, rate limiting, and audit logging automatically on every request.
 
@@ -126,7 +144,7 @@ REDIS_URL=redis://172.17.0.1:6379
 PINECONE_API_KEY=your_pinecone_api_key
 OPENAI_API_KEY=your_openai_api_key
 GATEWAY_URL=https://prismbrain.co
-UPSTREAM_URL=https://your-mcp-server.com
+UPSTREAM_URL=https://api.openai.com
 ```
 
 **3. Edit `gateway/policy.rego` to define your own roles and tools:**
