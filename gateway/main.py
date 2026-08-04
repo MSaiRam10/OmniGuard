@@ -60,13 +60,22 @@ async def call_tool(request: Request, body: ProxyRequest):
         raise HTTPException(status_code=403, detail="Policy denied")
 
     prompt = str(body.payload)
+    if "messages" in body.payload:
+        for msg in body.payload["messages"]:
+            if msg.get("role") == "user":
+                prompt = msg.get("content", "")
+                break
 
     if not detect_prompt_injection(prompt):
         log_event(user_id=user_id, role=role, tool=body.tool, action=prompt, blocked=True, block_reason="prompt_injection")
         raise HTTPException(status_code=400, detail="Prompt injection detected")
 
     clean_payload = body.payload.copy()
-    if "content" in clean_payload:
+    if "messages" in clean_payload:
+        for msg in clean_payload["messages"]:
+            if "content" in msg:
+                msg["content"] = scrub_pii(msg["content"])
+    elif "content" in clean_payload:
         clean_payload["content"] = scrub_pii(clean_payload["content"])
 
     response = await forward_request(body.upstream_url, clean_payload, dict(request.headers))
