@@ -36,3 +36,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+  soc:
+    build: ./soc-agents
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: always
+  admin:
+    build: ./admin
+    ports:
+      - "8512:8501"
+    env_file:
+      - .env
+    depends_on:
+      - api
