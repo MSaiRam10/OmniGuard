@@ -1,0 +1,9 @@
+admin:
+    build: ./admin
+    ports:
+      - "8512:8501"
+    env_file:
+      - .env
+    depends_on:
+      - api
+    restart: always
