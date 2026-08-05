@@ -15,8 +15,8 @@ Every time an AI agent tries to call a tool (GitHub, database, API), the request
 - **PII Redaction** - Microsoft Presidio strips emails, SSNs, credit cards, phone numbers, names, IP addresses, passport numbers, addresses, and bank account numbers before any payload reaches an upstream service.
 - **Rate Limiting** - Redis token bucket enforces per-user request limits. Precise enforcement validated at exactly 60 req/min.
 - **Audit Logging** - Every request logged to PostgreSQL with user identity, tool called, action taken, blocked status, and block reason. Append-only, immutable.
-- **Agentic SOC** - LangGraph-powered Triage, Enrichment, and Containment agents poll audit logs every 30 seconds. Automatically adds compromised users to Redis blocklist. Blocked users are denied instantly on next request.
-- **Automated Red Team** - Offensive LangGraph swarm that attacks the gateway on demand and outputs security benchmark scores across 103 attack vectors.
+- **Agentic SOC** - Three LangGraph agents (Triage, Enrichment, Containment) run in a Docker container 24/7. Every 30 seconds they read audit logs, detect suspicious patterns, and automatically add compromised users to the Redis blocklist. No human needed.
+- **Automated Red Team** - Offensive LangGraph swarm you run on demand. Attacks OmniGuard across 103 vectors and outputs a full security benchmark report.
 - **Admin Dashboard** - Live security dashboard at admin.prismbrain.co showing total requests, block rate, top blocked users, and real-time audit logs.
 
 ## Benchmark Results
@@ -37,7 +37,7 @@ Validated in production at prismbrain.co:
 - Pinecone - prompt injection vector store
 - Redis - token bucket rate limiting + SOC blocklist
 - PostgreSQL - append-only audit logs
-- LangGraph - Agentic SOC (auto-polling every 30s) and Red Team swarm
+- LangGraph - Agentic SOC and Red Team swarm
 - Docker
 
 ## Operational Scenarios
@@ -65,9 +65,47 @@ Validated in production at prismbrain.co:
 
 ---
 
+## Using the Hosted Version (prismbrain.co)
+
+No setup required. The hosted version at prismbrain.co is pointed at OpenAI's API. You bring your own OpenAI key and pass it on every request.
+
+**Step 1 - Get a token:**
+
+```bash
+curl -X POST https://prismbrain.co/token \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "john", "role": "senior-dev"}'
+```
+
+Returns:
+```json
+{"token": "eyJhbGci..."}
+```
+
+**Step 2 - Call OpenAI through OmniGuard:**
+
+```bash
+curl -X POST https://prismbrain.co/call_tool \
+  -H "Authorization: Bearer your-omniguard-token" \
+  -H "X-Upstream-Key: your-openai-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream_url": "https://api.openai.com/v1/chat/completions",
+    "payload": {
+      "model": "gpt-4o-mini",
+      "messages": [{"role": "user", "content": "What is 2+2?"}]
+    },
+    "tool": "chat_completion"
+  }'
+```
+
+**Step 3 - That is it.** Every request is automatically checked for prompt injection, PII redacted, rate limited, and logged.
+
+---
+
 ## Self-Hosting Setup
 
-Only follow these steps if you want to run your own instance. Skip if using prismbrain.co.
+Follow these steps to run OmniGuard on your own infrastructure and point it at any upstream - OpenAI, Anthropic, your own MCP servers, or any internal API.
 
 **1. Create a Pinecone account at pinecone.io and create an index with these exact settings:**
 
@@ -86,7 +124,7 @@ REDIS_URL=redis://172.17.0.1:6379
 PINECONE_API_KEY=your_pinecone_api_key
 OPENAI_API_KEY=your_openai_api_key
 GATEWAY_URL=https://your-domain.com
-UPSTREAM_URL=https://your-url
+UPSTREAM_URL=https://your-domain.com
 ```
 
 **3. Edit `gateway/policy.rego` to define your own roles and tools:**
@@ -138,67 +176,34 @@ python red-team/attacker.py
 
 ---
 
-## Using OmniGuard in Your Application
+## Using OmniGuard in Your Application (Self-Hosted)
 
-OmniGuard works with any upstream API or MCP server that accepts HTTP requests - not just OpenAI. You pass the upstream URL and your API key for that upstream on every request. OmniGuard does not care what the upstream is.
+Once deployed, use OmniGuard from any language. Replace `https://your-domain.com` with your own deployment URL.
 
-**Supported upstreams (examples):**
+OmniGuard works with any upstream that accepts HTTP - not just OpenAI:
 
 | Upstream | upstream_url | X-Upstream-Key |
 |----------|-------------|----------------|
 | OpenAI | `https://api.openai.com/v1/chat/completions` | Your OpenAI API key |
 | Anthropic | `https://api.anthropic.com/v1/messages` | Your Anthropic API key |
-| Your GitHub MCP | `https://your-github-mcp.com/call_tool` | Your GitHub PAT |
-| Your internal API | `https://your-internal-api.com/endpoint` | Your internal API key |
+| GitHub MCP | `https://your-github-mcp.com/call_tool` | Your GitHub PAT |
 | Any MCP server | `https://your-mcp-server.com` | Whatever key that server needs |
-
-OmniGuard enforces security on every request regardless of upstream. The upstream just receives the approved, PII-scrubbed, rate-limited request.
-
-### Step 1 - Get a token
-
-```bash
-curl -X POST https://your-domain.com/token \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "john", "role": "senior-dev"}'
-```
-
-Returns:
-```json
-{"token": "eyJhbGci..."}
-```
-
-### Step 2 - Call any upstream through OmniGuard
-
-**curl:**
-
-```bash
-curl -X POST https://your-domain.com/call_tool \
-  -H "Authorization: Bearer your-omniguard-token" \
-  -H "X-Upstream-Key: your-upstream-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "upstream_url": "https://api.openai.com/v1/chat/completions",
-    "payload": {
-      "model": "gpt-4o-mini",
-      "messages": [{"role": "user", "content": "What is 2+2?"}]
-    },
-    "tool": "chat_completion"
-  }'
-```
 
 **Python:**
 
 ```python
 import httpx
 
-token_res = httpx.post("https://your-domain.com/token", json={
+# Get a token once and reuse until expiry
+token_res = httpx.post("https://prismbrain.co/token", json={
     "user_id": "john",
     "role": "senior-dev"
 })
 token = token_res.json()["token"]
 
+# Call any upstream through OmniGuard
 response = httpx.post(
-    "https://your-domain.com/call_tool",
+    "https://prismbrain.co/call_tool",
     headers={
         "Authorization": f"Bearer {token}",
         "X-Upstream-Key": "your-upstream-api-key"
@@ -220,14 +225,14 @@ print(response.json())
 ```javascript
 const axios = require('axios');
 
-const tokenRes = await axios.post('https://your-domain.com/token', {
+const tokenRes = await axios.post('https://prismbrain.co/token', {
     user_id: 'john',
     role: 'senior-dev'
 });
 const token = tokenRes.data.token;
 
 const response = await axios.post(
-    'https://your-domain.com/call_tool',
+    'https://prismbrain.co/call_tool',
     {
         upstream_url: 'https://api.openai.com/v1/chat/completions',
         payload: {
@@ -245,8 +250,6 @@ const response = await axios.post(
 );
 console.log(response.data);
 ```
-
-Every call your application makes now passes through OmniGuard's full security stack automatically - no other code changes needed.
 
 ## Endpoints
 
