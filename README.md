@@ -168,6 +168,10 @@ python seed_pinecone.py
 docker-compose up --build -d
 ```
 
+After deploying, update `admin/dashboard.py` and change the stats URL to your own domain:
+
+STATS_URL = "https://your-domain.com/admin/stats"
+
 **7. Run the red team benchmark (optional):**
 
 ```bash
