@@ -3,6 +3,7 @@
 A Zero-Trust MCP Governance Gateway and Agentic SOC for enterprise AI agents. OmniGuard sits between your AI agents and the tools they call - enforcing identity, policy, and security on every single request.
 
 **Live at: https://prismbrain.co**
+**Admin Dashboard: https://admin.prismbrain.co**
 
 ## What It Does
 
@@ -11,96 +12,22 @@ Every time an AI agent tries to call a tool (GitHub, database, API), the request
 - **Identity Verification** - JWT-based authentication on every request. No valid token, no access.
 - **Policy Enforcement** - Open Policy Agent (OPA) enforces RBAC rules. Junior devs cannot commit to production. Contractors cannot access databases. Rules are defined in policy files, not hardcoded.
 - **Prompt Injection Detection** - Pinecone vector similarity matching against 60+ known jailbreak and injection patterns. Threshold tunable per deployment.
-- **PII Redaction** - Microsoft Presidio strips emails, SSNs, credit cards, phone numbers, and names before any payload reaches an upstream service.
+- **PII Redaction** - Microsoft Presidio strips emails, SSNs, credit cards, phone numbers, names, IP addresses, passport numbers, addresses, and bank account numbers before any payload reaches an upstream service.
 - **Rate Limiting** - Redis token bucket enforces per-user request limits. Precise enforcement validated at exactly 60 req/min.
 - **Audit Logging** - Every request logged to PostgreSQL with user identity, tool called, action taken, blocked status, and block reason. Append-only, immutable.
-- **Agentic SOC** - LangGraph-powered Triage, Enrichment, and Containment agents monitor audit logs in real time and automatically revoke compromised sessions.
+- **Agentic SOC** - LangGraph-powered Triage, Enrichment, and Containment agents poll audit logs every 30 seconds. Automatically adds compromised users to Redis blocklist. Blocked users are denied instantly on next request.
 - **Automated Red Team** - Offensive LangGraph swarm that attacks the gateway on demand and outputs security benchmark scores across 103 attack vectors.
+- **Admin Dashboard** - Live security dashboard at admin.prismbrain.co showing total requests, block rate, top blocked users, and real-time audit logs.
 
 ## Benchmark Results
 
-Validated against 103 automated attack vectors:
+Validated in production at prismbrain.co:
 
 - Prompt Injection Block Rate: 100% (30/30 vectors)
 - JWT Attack Prevention: 100% (3/3 vectors)
 - OPA Policy Bypass Prevention: 100% (3/3 vectors)
 - Rate Limit Enforcement: precise at 60 req/min (10/70 correctly blocked)
-
-## How to Use (Hosted Version at prismbrain.co)
-
-No setup required. Just use the hosted version directly.
-
-The hosted version at prismbrain.co is pointed at OpenAI's API. Every request passes through OmniGuard's full security stack before reaching the upstream.
-
-**Step 1 - Get a token:**
-
-```bash
-curl -X POST https://prismbrain.co/token \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "john", "role": "senior-dev"}'
-```
-
-Returns:
-```json
-{"token": "eyJhbGci..."}
-```
-
-**Step 2 - Call any upstream through OmniGuard:**
-
-Pass your upstream API key via the `X-Upstream-Key` header. OmniGuard uses it to authenticate with the upstream service on your behalf.
-
-Example with OpenAI:
-
-```bash
-curl -X POST https://prismbrain.co/call_tool \
-  -H "Authorization: Bearer your-omniguard-token" \
-  -H "X-Upstream-Key: your-openai-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "upstream_url": "https://api.openai.com/v1/chat/completions",
-    "payload": {
-      "model": "gpt-4o-mini",
-      "messages": [{"role": "user", "content": "What is 2+2?"}]
-    },
-    "tool": "chat_completion"
-  }'
-```
-
-Example with GitHub MCP:
-
-```bash
-curl -X POST https://prismbrain.co/call_tool \
-  -H "Authorization: Bearer your-omniguard-token" \
-  -H "X-Upstream-Key: your-github-personal-access-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "upstream_url": "https://your-github-mcp-server.com/call_tool",
-    "payload": {"username": "MSaiRam10"},
-    "tool": "list_repos"
-  }'
-```
-
-OmniGuard intercepts the request, checks your JWT identity, enforces OPA policy, scans for prompt injection, redacts PII, then forwards to the upstream with your key as the Authorization header.
-
-To point OmniGuard at your own MCP server, self-host using the setup instructions below and set `UPSTREAM_URL` in your `.env`.
-
-**Step 3 - That is it.** OmniGuard handles identity verification, policy enforcement, prompt injection detection, PII redaction, rate limiting, and audit logging automatically on every request.
-
-## Roles Available (Default)
-
-- `admin` - full access to all tools
-- `senior-dev` - access to all tools except delete operations
-- `junior-dev` - read-only access (read_repo only)
-- `contractor` - restricted access
-
-Add your own roles and rules in `gateway/policy.rego`.
-
-## What Gets Blocked
-
-- Invalid or expired JWT returns `401`
-- Policy violation (wrong role for tool) returns `403`
-- Prompt injection detected returns `400 {"detail": "Prompt injection detected"}`
-- Rate limit exceeded returns `429`
+- PII Redaction Accuracy: 100% across 10 entity types (email, SSN, credit card, phone, name, IP address, date of birth, passport, address, bank account)
 
 ## Stack
 
@@ -108,18 +35,33 @@ Add your own roles and rules in `gateway/policy.rego`.
 - Open Policy Agent (OPA) - RBAC policy enforcement
 - Microsoft Presidio - PII redaction
 - Pinecone - prompt injection vector store
-- Redis - token bucket rate limiting
+- Redis - token bucket rate limiting + SOC blocklist
 - PostgreSQL - append-only audit logs
-- LangGraph - Agentic SOC and Red Team swarm
+- LangGraph - Agentic SOC (auto-polling every 30s) and Red Team swarm
 - Docker
 
 ## Operational Scenarios
 
 **Scenario A - Policy Enforcement:** Junior dev AI agent tries to commit to production repo. OPA blocks it based on role. Zero code changes needed to update the policy.
 
-**Scenario B - Agentic SOC:** Prompt injection tricks an AI agent into attempting a data dump. Pinecone blocks the request. Triage Agent detects the anomaly spike. Containment Agent revokes the JWT and updates OPA policy in under 5 seconds.
+**Scenario B - Agentic SOC:** Prompt injection tricks an AI agent into attempting a data dump. Pinecone blocks the request. Triage Agent detects the anomaly spike in audit logs every 30 seconds. Containment Agent adds the user to Redis blocklist. All subsequent requests from that user are blocked instantly.
 
 **Scenario C - Red Team:** Run `python red-team/attacker.py` to launch the offensive swarm. It attacks the gateway across 103 vectors and outputs a full benchmark report.
+
+## What Gets Blocked
+
+- Invalid or expired JWT returns `401`
+- Policy violation (wrong role for tool) returns `403`
+- Prompt injection detected returns `400 {"detail": "Prompt injection detected"}`
+- Rate limit exceeded returns `429`
+- SOC-blocklisted user returns `403 {"detail": "User blocked by SOC"}`
+
+## Roles Available (Default)
+
+- `admin` - full access to all tools
+- `senior-dev` - access to all tools except delete operations
+- `junior-dev` - read-only access (read_repo only)
+- `contractor` - restricted access
 
 ---
 
@@ -143,7 +85,7 @@ DATABASE_URL=postgresql://postgres:password@db:5432/omniguard
 REDIS_URL=redis://172.17.0.1:6379
 PINECONE_API_KEY=your_pinecone_api_key
 OPENAI_API_KEY=your_openai_api_key
-GATEWAY_URL=https://prismbrain.co
+GATEWAY_URL=https://your-domain.com
 UPSTREAM_URL=https://api.openai.com
 ```
 
@@ -152,18 +94,18 @@ UPSTREAM_URL=https://api.openai.com
 ```rego
 package omniguard
 
-default allow = false
+default allow := false
 
-allow {
+allow if {
     input.role == "admin"
 }
 
-allow {
+allow if {
     input.role == "senior-dev"
     input.tool != "delete_database"
 }
 
-allow {
+allow if {
     input.role == "junior-dev"
     input.tool == "read_repo"
 }
@@ -194,15 +136,129 @@ docker-compose up --build -d
 python red-team/attacker.py
 ```
 
+---
+
+## Using OmniGuard in Your Application
+
+OmniGuard works with any upstream API or MCP server that accepts HTTP requests - not just OpenAI. You pass the upstream URL and your API key for that upstream on every request. OmniGuard does not care what the upstream is.
+
+**Supported upstreams (examples):**
+
+| Upstream | upstream_url | X-Upstream-Key |
+|----------|-------------|----------------|
+| OpenAI | `https://api.openai.com/v1/chat/completions` | Your OpenAI API key |
+| Anthropic | `https://api.anthropic.com/v1/messages` | Your Anthropic API key |
+| Your GitHub MCP | `https://your-github-mcp.com/call_tool` | Your GitHub PAT |
+| Your internal API | `https://your-internal-api.com/endpoint` | Your internal API key |
+| Any MCP server | `https://your-mcp-server.com` | Whatever key that server needs |
+
+OmniGuard enforces security on every request regardless of upstream. The upstream just receives the approved, PII-scrubbed, rate-limited request.
+
+### Step 1 - Get a token
+
+```bash
+curl -X POST https://your-domain.com/token \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "john", "role": "senior-dev"}'
+```
+
+Returns:
+```json
+{"token": "eyJhbGci..."}
+```
+
+### Step 2 - Call any upstream through OmniGuard
+
+**curl:**
+
+```bash
+curl -X POST https://your-domain.com/call_tool \
+  -H "Authorization: Bearer your-omniguard-token" \
+  -H "X-Upstream-Key: your-upstream-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "upstream_url": "https://api.openai.com/v1/chat/completions",
+    "payload": {
+      "model": "gpt-4o-mini",
+      "messages": [{"role": "user", "content": "What is 2+2?"}]
+    },
+    "tool": "chat_completion"
+  }'
+```
+
+**Python:**
+
+```python
+import httpx
+
+token_res = httpx.post("https://your-domain.com/token", json={
+    "user_id": "john",
+    "role": "senior-dev"
+})
+token = token_res.json()["token"]
+
+response = httpx.post(
+    "https://your-domain.com/call_tool",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "X-Upstream-Key": "your-upstream-api-key"
+    },
+    json={
+        "upstream_url": "https://api.openai.com/v1/chat/completions",
+        "payload": {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "What is 2+2?"}]
+        },
+        "tool": "chat_completion"
+    }
+)
+print(response.json())
+```
+
+**Node.js:**
+
+```javascript
+const axios = require('axios');
+
+const tokenRes = await axios.post('https://your-domain.com/token', {
+    user_id: 'john',
+    role: 'senior-dev'
+});
+const token = tokenRes.data.token;
+
+const response = await axios.post(
+    'https://your-domain.com/call_tool',
+    {
+        upstream_url: 'https://api.openai.com/v1/chat/completions',
+        payload: {
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: 'What is 2+2?' }]
+        },
+        tool: 'chat_completion'
+    },
+    {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Upstream-Key': 'your-upstream-api-key'
+        }
+    }
+);
+console.log(response.data);
+```
+
+Every call your application makes now passes through OmniGuard's full security stack automatically - no other code changes needed.
+
 ## Endpoints
 
 - `POST /token` - Get a JWT token
 - `POST /call_tool` - Main proxy endpoint
+- `GET /admin/stats` - Security statistics JSON
 - `GET /docs` - API documentation
 
-## Port
+## Ports
 
-- 8011
+- 8011 - Gateway API
+- 8512 - Admin Dashboard
 
 ## GitHub
 
