@@ -86,7 +86,7 @@ REDIS_URL=redis://172.17.0.1:6379
 PINECONE_API_KEY=your_pinecone_api_key
 OPENAI_API_KEY=your_openai_api_key
 GATEWAY_URL=https://your-domain.com
-UPSTREAM_URL=https://api.openai.com
+UPSTREAM_URL=https://your-url
 ```
 
 **3. Edit `gateway/policy.rego` to define your own roles and tools:**
